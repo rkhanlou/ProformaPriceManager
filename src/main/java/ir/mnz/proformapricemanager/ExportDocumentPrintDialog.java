@@ -133,10 +133,10 @@ public final class ExportDocumentPrintDialog {
                 new JTextField();
 
         private final JTextField txtSalesManager =
-                new JTextField();
+                new JTextField("Neda Agah");
 
         private final JTextField txtManagingDirector =
-                new JTextField();
+                new JTextField("Hadi Mousavi");
 
         private final JTextArea txtFooter =
                 new JTextArea();
@@ -150,7 +150,7 @@ public final class ExportDocumentPrintDialog {
         private final JSpinner spnLetterheadTopMm =
                 new JSpinner(
                         new SpinnerNumberModel(
-                                40,
+                                45,
                                 0,
                                 80,
                                 5
@@ -160,7 +160,7 @@ public final class ExportDocumentPrintDialog {
         private final JSpinner spnPrintFontSize =
                 new JSpinner(
                         new SpinnerNumberModel(
-                                9,
+                                11,
                                 7,
                                 16,
                                 1

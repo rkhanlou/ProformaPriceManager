@@ -1025,91 +1025,78 @@ public final class ExportDocumentPrintService {
          * رنگ Header اصلی و Header جدول همچنان بر اساس
          * System Price / Second Price باقی می‌ماند.
          */
+        // -----------------------------------------------------
+        // Signatures
+        // -----------------------------------------------------
+
         Color signatureAccent =
-                data.kind()
-                        == DocumentKind.PROFORMA
-                        ? new Color(
-                                219,
-                                234,
-                                254
-                        )
-                        // Commercial Invoice: نارنجی روشن
-                        : new Color(
-                                255,
-                                237,
-                                213
-                        );
+                data.kind() == DocumentKind.PROFORMA
+                        ? new Color(219, 234, 254)
+                        : new Color(255, 237, 213);
 
         Color signatureBorder =
-                data.kind()
-                        == DocumentKind.PROFORMA
-                        ? new Color(
-                                96,
-                                165,
-                                250
-                        )
-                        // Commercial Invoice: نارنجی پررنگ
-                        : new Color(
-                                234,
-                                88,
-                                12
-                        );
+                data.kind() == DocumentKind.PROFORMA
+                        ? new Color(96, 165, 250)
+                        : new Color(234, 88, 12);
 
-        int signY =
-                y + 66;
+        int signY = y + 66;
+        int signWidth = 155;
+        int signHeight = 80;
+        int signGap = 54;
 
-        int signWidth =
-                155;
+        if (data.kind() == DocumentKind.PROFORMA) {
+            // -----------------------------------------------------
+            // فقط برای پروفرما: تک امضای Sales Manager در سمت راست
+            // -----------------------------------------------------
+            int rightSignX = right - signWidth - 35;
 
-        int signHeight =
-                80;
+            drawSignatureBox(
+                    g,
+                    rightSignX,
+                    signY,
+                    signWidth,
+                    signHeight,
+                    "Sales Manager",
+                    safe(data.salesManager()),
+                    signatureAccent,
+                    signatureBorder,
+                    8
+            );
 
-        int signGap =
-                54;
+        } else {
+            // -----------------------------------------------------
+            // برای فاکتور (INVOICE): هر دو امضا
+            // -----------------------------------------------------
+            int signaturesTotalWidth = signWidth * 2 + signGap;
+            int firstSignX = left + (width - signaturesTotalWidth) / 2;
+            int secondSignX = firstSignX + signWidth + signGap;
 
-        int signaturesTotalWidth =
-                signWidth * 2
-                        + signGap;
+            drawSignatureBox(
+                    g,
+                    firstSignX,
+                    signY,
+                    signWidth,
+                    signHeight,
+                    "Sales Manager",
+                    safe(data.salesManager()),
+                    signatureAccent,
+                    signatureBorder,
+                    8
+            );
 
-        int firstSignX =
-                left
-                        + (width - signaturesTotalWidth)
-                        / 2;
-
-        int secondSignX =
-                firstSignX
-                        + signWidth
-                        + signGap;
-
-        drawSignatureBox(
-                g,
-                firstSignX,
-                signY,
-                signWidth,
-                signHeight,
-                "Sales Manager",
-                safe(
-                        data.salesManager()
-                ),
-                signatureAccent,
-                signatureBorder,
-                getBaseFontSize(data)
-        );
-
-        drawSignatureBox(
-                g,
-                secondSignX,
-                signY,
-                signWidth,
-                signHeight,
-                "Managing Director",
-                safe(
-                        data.managingDirector()
-                ),
-                signatureAccent,
-                signatureBorder,
-                getBaseFontSize(data)
-        );
+            drawSignatureBox(
+                    g,
+                    secondSignX,
+                    signY,
+                    signWidth,
+                    signHeight,
+                    "Managing Director",
+                    safe(data.managingDirector()),
+                    signatureAccent,
+                    signatureBorder,
+                    8
+            );
+        }
 
         // -----------------------------------------------------
         // Certification footer
