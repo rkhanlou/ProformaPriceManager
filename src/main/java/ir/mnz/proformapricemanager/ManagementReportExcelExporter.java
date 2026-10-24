@@ -214,7 +214,7 @@ public final class ManagementReportExcelExporter {
                         0,
                         0,
                         0,
-                        10
+                        11
                 )
         );
 
@@ -274,7 +274,7 @@ public final class ManagementReportExcelExporter {
                         2,
                         2,
                         0,
-                        10
+                        11
                 )
         );
 
@@ -294,6 +294,7 @@ public final class ManagementReportExcelExporter {
                 "ثبت نشده",
                 "مبلغ سیستم",
                 "مبلغ دوم",
+                "Discount",
                 "اختلاف"
         };
 
@@ -361,6 +362,13 @@ public final class ManagementReportExcelExporter {
         setNumber(
                 kpiValue,
                 6,
+                data.discountTotal(),
+                styles.kpiNumber
+        );
+
+        setNumber(
+                kpiValue,
+                7,
                 data.differenceTotal(),
                 styles.kpiNumber
         );
@@ -391,6 +399,7 @@ public final class ManagementReportExcelExporter {
                 "وضعیت قیمت دوم",
                 "مبلغ سیستم",
                 "مبلغ دوم",
+                "Discount",
                 "اختلاف"
         };
 
@@ -501,6 +510,13 @@ public final class ManagementReportExcelExporter {
             setNumber(
                     row,
                     10,
+                    document.discount(),
+                    styles.number
+            );
+
+            setNumber(
+                    row,
+                    11,
                     document.difference(),
                     styles.number
             );
@@ -518,7 +534,7 @@ public final class ManagementReportExcelExporter {
                             headerIndex,
                             rowIndex - 1,
                             0,
-                            10
+                            11
                     )
             );
         }
@@ -588,7 +604,7 @@ public final class ManagementReportExcelExporter {
                         0,
                         0,
                         0,
-                        15
+                        16
                 )
         );
 
@@ -645,6 +661,7 @@ public final class ManagementReportExcelExporter {
                 "مبلغ سیستم",
                 "قیمت دوم / 1000",
                 "مبلغ دوم",
+                "Discount سند",
                 "اختلاف"
         };
 
@@ -668,6 +685,9 @@ public final class ManagementReportExcelExporter {
         int rowIndex =
                 headerIndex + 1;
 
+        long currentDocumentRef =
+                Long.MIN_VALUE;
+
         for (
                 DocumentRepository.ManagementReportItem item
                 : items
@@ -677,6 +697,16 @@ public final class ManagementReportExcelExporter {
                     sheet.createRow(
                             rowIndex++
                     );
+
+            boolean firstDocumentRow =
+                    item.vchHdrRef()
+                            != currentDocumentRef;
+
+            if (firstDocumentRow) {
+
+                currentDocumentRef =
+                        item.vchHdrRef();
+            }
 
             setNumber(
                     row,
@@ -785,10 +815,33 @@ public final class ManagementReportExcelExporter {
                     styles.text
             );
 
+            Double rowDiscount =
+                    firstDocumentRow
+                            ? item.documentDiscount()
+                            : null;
+
             setNullableNumber(
                     row,
                     15,
-                    item.difference(),
+                    rowDiscount,
+                    styles.number,
+                    styles.text
+            );
+
+            Double rowDifference =
+                    item.difference();
+
+            if (rowDifference != null
+                    && rowDiscount != null) {
+
+                rowDifference -=
+                        rowDiscount;
+            }
+
+            setNullableNumber(
+                    row,
+                    16,
+                    rowDifference,
                     styles.number,
                     styles.text
             );
@@ -806,7 +859,7 @@ public final class ManagementReportExcelExporter {
                             headerIndex,
                             rowIndex - 1,
                             0,
-                            15
+                            16
                     )
             );
         }
@@ -1163,6 +1216,7 @@ public final class ManagementReportExcelExporter {
                 18,
                 18,
                 18,
+                16,
                 18
         };
 
@@ -1192,6 +1246,7 @@ public final class ManagementReportExcelExporter {
                 18,
                 18,
                 18,
+                16,
                 18
         };
 

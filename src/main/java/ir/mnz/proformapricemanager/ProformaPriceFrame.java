@@ -7,6 +7,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -97,7 +98,7 @@ public class ProformaPriceFrame extends JFrame {
             new JButton("لیست اسناد");
 
     private final JButton btnSave =
-            new JButton("ثبت قیمت دوم");
+            new JButton("ثبت قیمت دوم و تخفیف");
 
     private final JButton btnPrint =
             new JButton("چاپ سند");
@@ -133,6 +134,9 @@ public class ProformaPriceFrame extends JFrame {
 
     private final JLabel lblDifference =
             new JLabel("-");
+
+    private final JTextField txtDiscount =
+            new JTextField();
 
     // =========================================================
     // Status
@@ -1023,7 +1027,7 @@ public class ProformaPriceFrame extends JFrame {
         card.setLayout(
                 new GridLayout(
                         1,
-                        3,
+                        4,
                         12,
                         0
                 )
@@ -1048,6 +1052,10 @@ public class ProformaPriceFrame extends JFrame {
         );
 
         card.add(
+                createDiscountBox()
+        );
+
+        card.add(
                 createAmountBox(
                         "اختلاف",
                         lblDifference,
@@ -1057,6 +1065,90 @@ public class ProformaPriceFrame extends JFrame {
         );
 
         return card;
+    }
+
+    private JPanel createDiscountBox() {
+
+        JPanel panel =
+                new JPanel(
+                        new BorderLayout(
+                                0,
+                                6
+                        )
+                );
+
+        panel.setOpaque(true);
+        panel.setBackground(
+                new Color(255, 251, 235)
+        );
+
+        panel.setBorder(
+                new EmptyBorder(
+                        11,
+                        12,
+                        11,
+                        12
+                )
+        );
+
+        panel.putClientProperty(
+                FlatClientProperties.STYLE,
+                "arc: 14"
+        );
+
+        JLabel lblTitle =
+                new JLabel(
+                        "Discount (تخفیف کل $)",
+                        SwingConstants.CENTER
+                );
+
+        lblTitle.setFont(
+                new Font(
+                        "Segoe UI",
+                        Font.BOLD,
+                        12
+                )
+        );
+
+        lblTitle.setForeground(TEXT_MUTED);
+
+        txtDiscount.setHorizontalAlignment(
+                SwingConstants.CENTER
+        );
+
+        txtDiscount.setFont(
+                new Font(
+                        "Segoe UI",
+                        Font.BOLD,
+                        18
+                )
+        );
+
+        txtDiscount.setBackground(EDIT_BG);
+        txtDiscount.setForeground(WARNING);
+        txtDiscount.setEnabled(false);
+
+        txtDiscount.putClientProperty(
+                FlatClientProperties.PLACEHOLDER_TEXT,
+                "مثلاً 5,000"
+        );
+
+        txtDiscount.putClientProperty(
+                FlatClientProperties.STYLE,
+                "arc: 10"
+        );
+
+        panel.add(
+                lblTitle,
+                BorderLayout.NORTH
+        );
+
+        panel.add(
+                txtDiscount,
+                BorderLayout.CENTER
+        );
+
+        return panel;
     }
 
     private JPanel createAmountBox(
@@ -1165,7 +1257,7 @@ public class ProformaPriceFrame extends JFrame {
 
         btnSave.setPreferredSize(
                 new Dimension(
-                        180,
+                        215,
                         44
                 )
         );
@@ -1598,6 +1690,32 @@ public class ProformaPriceFrame extends JFrame {
                     }
                 }
         );
+
+        txtDiscount.getDocument().addDocumentListener(
+                new javax.swing.event.DocumentListener() {
+
+                    @Override
+                    public void insertUpdate(
+                            javax.swing.event.DocumentEvent e
+                    ) {
+                        calculateTotals();
+                    }
+
+                    @Override
+                    public void removeUpdate(
+                            javax.swing.event.DocumentEvent e
+                    ) {
+                        calculateTotals();
+                    }
+
+                    @Override
+                    public void changedUpdate(
+                            javax.swing.event.DocumentEvent e
+                    ) {
+                        calculateTotals();
+                    }
+                }
+        );
     }
 
     // =========================================================
@@ -1993,6 +2111,16 @@ public class ProformaPriceFrame extends JFrame {
                                     )
                             );
 
+                            txtDiscount.setText(
+                                    data.discount() == null
+                                            ? ""
+                                            : numberFormat.format(
+                                                    data.discount()
+                                            )
+                            );
+
+                            txtDiscount.setEnabled(true);
+
                             // Items
                             tableModel.setRowCount(0);
 
@@ -2219,10 +2347,22 @@ public class ProformaPriceFrame extends JFrame {
                     )
             );
 
+            Double discount =
+                    tryGetDouble(
+                            txtDiscount.getText()
+                    );
+
+            double discountValue =
+                    discount == null
+                            || discount < 0
+                            ? 0.0
+                            : discount;
+
             lblDifference.setText(
                     formatMoney(
                             newTotal
                                     - oldTotal
+                                    - discountValue
                     )
             );
 
@@ -2341,6 +2481,28 @@ public class ProformaPriceFrame extends JFrame {
                         ? ExportDocumentPrintService.DocumentKind.PROFORMA
                         : ExportDocumentPrintService.DocumentKind.INVOICE;
 
+        String discountText =
+                txtDiscount
+                        .getText()
+                        .trim();
+
+        Double printDiscount =
+                tryGetDouble(
+                        discountText
+                );
+
+        if (!discountText.isEmpty()
+                && printDiscount == null) {
+
+            showWarning(
+                    "مبلغ Discount معتبر نیست."
+            );
+
+            txtDiscount.requestFocusInWindow();
+
+            return;
+        }
+
         ExportDocumentPrintDialog.showDialog(
                 this,
                 company,
@@ -2352,6 +2514,9 @@ public class ProformaPriceFrame extends JFrame {
                 lblCustomerCodeValue.getText(),
                 lblCustomerValue.getText(),
                 currentDocumentData.customerAddress(),
+                printDiscount == null
+                        ? 0.0
+                        : printDiscount,
                 printItems
         );
     }
@@ -2425,6 +2590,50 @@ public class ProformaPriceFrame extends JFrame {
             );
 
             return;
+        }
+
+        final long vchHdrRef =
+                currentDocumentData.vchHdrRef();
+
+        final BigDecimal discount;
+
+        String discountText =
+                normalizeNumberText(
+                        txtDiscount.getText()
+                );
+
+        if (discountText.isEmpty()) {
+
+            discount = null;
+
+        } else {
+
+            try {
+
+                discount =
+                        new BigDecimal(
+                                discountText
+                        );
+
+            } catch (NumberFormatException ex) {
+
+                showError(
+                        "مبلغ Discount معتبر نیست."
+                );
+
+                txtDiscount.requestFocusInWindow();
+                return;
+            }
+
+            if (discount.signum() < 0) {
+
+                showError(
+                        "مبلغ Discount نمی‌تواند منفی باشد."
+                );
+
+                txtDiscount.requestFocusInWindow();
+                return;
+            }
         }
 
         List<DocumentRepository.PriceUpdate> updates =
@@ -2522,6 +2731,7 @@ public class ProformaPriceFrame extends JFrame {
 
                         مبلغ سیستم: %s
                         مبلغ دوم: %s
+                        Discount: %s
                         اختلاف: %s
                         """
                                 .formatted(
@@ -2532,9 +2742,10 @@ public class ProformaPriceFrame extends JFrame {
                                         updates.size(),
                                         lblOldTotal.getText(),
                                         lblNewTotal.getText(),
+                                        formatDiscount(discount),
                                         lblDifference.getText()
                                 ),
-                        "تأیید ثبت قیمت",
+                        "تأیید ثبت قیمت و تخفیف",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE
                 );
@@ -2547,7 +2758,7 @@ public class ProformaPriceFrame extends JFrame {
         setBusy(true);
 
         lblStatus.setText(
-                "در حال ثبت قیمت دوم..."
+                "در حال ثبت قیمت دوم و تخفیف..."
         );
 
         SwingWorker<Void, Void> worker =
@@ -2563,7 +2774,9 @@ public class ProformaPriceFrame extends JFrame {
                             documentRepository
                                     .savePreInvoicePrices(
                                             company,
-                                            updates
+                                            vchHdrRef,
+                                            updates,
+                                            discount
                                     );
 
                         } else {
@@ -2571,7 +2784,9 @@ public class ProformaPriceFrame extends JFrame {
                             documentRepository
                                     .saveInvoicePrices(
                                             company,
-                                            updates
+                                            vchHdrRef,
+                                            updates,
+                                            discount
                                     );
                         }
 
@@ -2593,18 +2808,20 @@ public class ProformaPriceFrame extends JFrame {
                             JOptionPane.showMessageDialog(
                                     ProformaPriceFrame.this,
                                     """
-                                    قیمت دوم با موفقیت ثبت شد.
+                                    قیمت دوم و Discount با موفقیت ثبت شد.
 
                                     شرکت: %s
                                     نوع سند: %s
                                     سال: %d
                                     شماره سند: %d
+                                    Discount: %s
                                     """
                                             .formatted(
                                                     company.name(),
                                                     documentType,
                                                     year,
-                                                    vchNo
+                                                    vchNo,
+                                                    formatDiscount(discount)
                                             ),
                                     "ثبت موفق",
                                     JOptionPane.INFORMATION_MESSAGE
@@ -2679,6 +2896,9 @@ public class ProformaPriceFrame extends JFrame {
         lblNewTotal.setText("-");
         lblDifference.setText("-");
 
+        txtDiscount.setText("");
+        txtDiscount.setEnabled(false);
+
         btnSave.setEnabled(false);
         btnPrint.setEnabled(false);
     }
@@ -2708,6 +2928,11 @@ public class ProformaPriceFrame extends JFrame {
         cmbDocumentType.setEnabled(!busy);
         txtYear.setEnabled(!busy);
         txtVchNo.setEnabled(!busy);
+
+        txtDiscount.setEnabled(
+                !busy
+                        && currentDocumentData != null
+        );
 
         setCursor(
                 busy
@@ -2760,10 +2985,9 @@ public class ProformaPriceFrame extends JFrame {
         }
 
         String text =
-                value
-                        .toString()
-                        .trim()
-                        .replace(",", "");
+                normalizeNumberText(
+                        value.toString()
+                );
 
         if (text.isEmpty()) {
 
@@ -2778,6 +3002,72 @@ public class ProformaPriceFrame extends JFrame {
 
             return null;
         }
+    }
+
+    private String normalizeNumberText(
+            String value
+    ) {
+
+        if (value == null) {
+            return "";
+        }
+
+        String text =
+                value
+                        .trim()
+                        .replace(",", "")
+                        .replace("٬", "")
+                        .replace("٫", ".")
+                        .replace(" ", "")
+                        .replace(" ", "");
+
+        StringBuilder result =
+                new StringBuilder(
+                        text.length()
+                );
+
+        for (
+                int i = 0;
+                i < text.length();
+                i++
+        ) {
+
+            char ch =
+                    text.charAt(i);
+
+            if (ch >= '۰' && ch <= '۹') {
+
+                result.append(
+                        (char) ('0' + (ch - '۰'))
+                );
+
+            } else if (ch >= '٠' && ch <= '٩') {
+
+                result.append(
+                        (char) ('0' + (ch - '٠'))
+                );
+
+            } else {
+
+                result.append(ch);
+            }
+        }
+
+        return result.toString();
+    }
+
+    private String formatDiscount(
+            BigDecimal discount
+    ) {
+
+        if (discount == null) {
+            return "-";
+        }
+
+        return "$ "
+                + numberFormat.format(
+                        discount
+                );
     }
 
     private String formatMoney(

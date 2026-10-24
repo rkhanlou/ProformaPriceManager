@@ -69,6 +69,7 @@ public final class ExportDocumentPrintDialog {
             String customerCode,
             String customerName,
             String customerAddress,
+            double discount,
             List<SourceItem> sourceItems
     ) {
 
@@ -82,6 +83,7 @@ public final class ExportDocumentPrintDialog {
                         customerCode,
                         customerName,
                         customerAddress,
+                        discount,
                         sourceItems
                 );
 
@@ -104,6 +106,7 @@ public final class ExportDocumentPrintDialog {
         private final String documentNo;
         private final String documentDate;
         private final String customerCode;
+        private final double discount;
         private final List<SourceItem> sourceItems;
 
         private final JTextField txtCode =
@@ -221,6 +224,7 @@ public final class ExportDocumentPrintDialog {
                 String customerCode,
                 String customerName,
                 String customerAddress,
+                double discount,
                 List<SourceItem> sourceItems
         ) {
 
@@ -246,6 +250,9 @@ public final class ExportDocumentPrintDialog {
 
             this.customerCode =
                     customerCode;
+
+            this.discount =
+                    discount;
 
             List<SourceItem> safeSourceItems =
                     sourceItems == null
@@ -1502,6 +1509,7 @@ public final class ExportDocumentPrintDialog {
                                     == PriceSource.SYSTEM
                                     ? ExportDocumentPrintService.PriceType.SYSTEM
                                     : ExportDocumentPrintService.PriceType.SECOND,
+                            discount,
                             items
                     );
 

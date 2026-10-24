@@ -114,6 +114,7 @@ public final class ExportDocumentPrintService {
             double letterheadTopMm,
             int fontSize,
             PriceType priceType,
+            double discount,
             List<Item> items
     ) {
 
@@ -132,6 +133,12 @@ public final class ExportDocumentPrintService {
             }
 
             return total;
+        }
+
+        public double finalTotal() {
+
+            return grandTotal()
+                    - discount;
         }
     }
 
@@ -911,7 +918,7 @@ public final class ExportDocumentPrintService {
                 left,
                 y,
                 width,
-                25
+                20
         );
 
         g.setFont(
@@ -926,7 +933,7 @@ public final class ExportDocumentPrintService {
                 g,
                 "Amount",
                 left + 35,
-                y + 16
+                y + 14
         );
 
         drawRightText(
@@ -935,39 +942,64 @@ public final class ExportDocumentPrintService {
                         data.grandTotal()
                 ),
                 right - 8,
-                y + 16
+                y + 14
         );
 
-        y += 25;
+        y += 20;
 
         g.drawRect(
                 left,
                 y,
                 width,
-                25
+                20
+        );
+
+        drawText(
+                g,
+                "Discount",
+                left + 35,
+                y + 14
+        );
+
+        drawRightText(
+                g,
+                MONEY.format(
+                        data.discount()
+                ),
+                right - 8,
+                y + 14
+        );
+
+        y += 20;
+
+        g.drawRect(
+                left,
+                y,
+                width,
+                20
         );
 
         drawText(
                 g,
                 "Total FCA",
                 left + 35,
-                y + 16
+                y + 14
         );
 
         drawRightText(
                 g,
                 MONEY.format(
-                        data.grandTotal()
+                        data.finalTotal()
                 ),
                 right - 8,
-                y + 16
+                y + 14
         );
 
         // -----------------------------------------------------
         // Terms
         // -----------------------------------------------------
 
-        y += 38;
+        y += 48;
 
         g.setFont(
                 new Font(
@@ -1118,13 +1150,15 @@ public final class ExportDocumentPrintService {
                 )
         );
 
+        // Footer text: centered like the original layout, but kept safely
+        // inside the printable box for both Proforma and Commercial Invoice.
         drawWrappedCenteredText(
                 g,
                 data.footerText(),
                 PAGE_WIDTH / 2,
-                772,
-                width - 50,
-                12,
+                786,
+                width - 70,
+                11,
                 3
         );
 
@@ -1133,9 +1167,9 @@ public final class ExportDocumentPrintService {
         drawLine(
                 g,
                 left,
-                798,
+                814,
                 right,
-                798
+                814
         );
     }
 
@@ -1229,10 +1263,10 @@ public final class ExportDocumentPrintService {
                 )
         );
 
-        drawCentered(
+        drawText(
                 g,
                 role,
-                x + width / 2,
+                x + 10,
                 y + 16
         );
 
@@ -1245,10 +1279,10 @@ public final class ExportDocumentPrintService {
                 )
         );
 
-        drawCentered(
+        drawText(
                 g,
                 name,
-                x + width / 2,
+                x + 10,
                 y + 40
         );
     }

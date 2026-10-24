@@ -1,5 +1,6 @@
 package ir.mnz.proformapricemanager;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -273,6 +274,80 @@ public class DocumentRepository {
         """;
 
     // =========================================================
+    // DOCUMENT DISCOUNT
+    // VchType: 1 = Pre Invoice, 2 = Invoice
+    // =========================================================
+
+    private static final int VCH_TYPE_PRE_INVOICE = 1;
+    private static final int VCH_TYPE_INVOICE = 2;
+
+    private static final String SQL_LOAD_DOCUMENT_DISCOUNT = """
+        SELECT Discount
+        FROM dbo.ExportDocumentInfo
+        WHERE VchType = ?
+          AND VchHdrRef = ?
+        """;
+
+    private static final String SQL_UPDATE_DOCUMENT_DISCOUNT = """
+        UPDATE dbo.ExportDocumentInfo
+        SET Discount = ?
+        WHERE VchType = ?
+          AND VchHdrRef = ?
+        """;
+
+    private static final String SQL_INSERT_DOCUMENT_DISCOUNT = """
+        INSERT INTO dbo.ExportDocumentInfo
+            (VchType, VchHdrRef, Discount)
+        VALUES
+            (?, ?, ?)
+        """;
+
+    private static final String SQL_DELETE_DOCUMENT_DISCOUNT = """
+        DELETE FROM dbo.ExportDocumentInfo
+        WHERE VchType = ?
+          AND VchHdrRef = ?
+        """;
+
+    private static final String SQL_DOCUMENT_INFO_EXISTS = """
+        SELECT COUNT(*)
+        FROM dbo.ExportDocumentInfo
+        WHERE VchType = ?
+          AND VchHdrRef = ?
+        """;
+
+    private static final String SQL_INVOICE_PRE_INVOICE_HEADER = """
+        SELECT
+            f.VchHdrRef AS InvoiceVchHdrRef,
+            COUNT(DISTINCT pre.VchHdrRef) AS PreInvoiceCount,
+            MIN(pre.VchHdrRef) AS PreInvoiceVchHdrRef
+
+        FROM sle.SLEFactItm f
+
+        LEFT JOIN sle.SLEPreFactItm pre
+               ON pre.VchItmId = f.PreFactVchItmRef
+
+        WHERE f.VchHdrRef = (
+
+            SELECT TOP 1
+                x.VchHdrRef
+
+            FROM sle.SLEFactItm x
+
+            WHERE x.VchNo = ?
+              AND x.Year = ?
+              AND x.CurType = 1
+
+            ORDER BY
+                x.VchHdrRef DESC
+        )
+
+          AND f.CurType = 1
+
+        GROUP BY
+            f.VchHdrRef
+        """;
+
+    // =========================================================
     // Load
     // =========================================================
 
@@ -286,7 +361,8 @@ public class DocumentRepository {
                 company,
                 vchNo,
                 year,
-                SQL_PRE_INVOICE
+                SQL_PRE_INVOICE,
+                VCH_TYPE_PRE_INVOICE
         );
     }
 
@@ -306,11 +382,23 @@ public class DocumentRepository {
                 year
         );
 
+        /*
+         * تخفیف کل سند نیز یک بار از پیش‌فاکتور مبنا به فاکتور
+         * منتقل می‌شود. اگر برای خود فاکتور قبلاً رکوردی ثبت شده
+         * باشد، مقدار آن overwrite نخواهد شد.
+         */
+        syncInvoiceDiscountFromPreInvoice(
+                company,
+                vchNo,
+                year
+        );
+
         return loadDocument(
                 company,
                 vchNo,
                 year,
-                SQL_INVOICE
+                SQL_INVOICE,
+                VCH_TYPE_INVOICE
         );
     }
 
@@ -354,11 +442,104 @@ public class DocumentRepository {
         }
     }
 
+    /**
+     * تخفیف کل را از پیش‌فاکتور مبنا به فاکتور منتقل می‌کند.
+     *
+     * انتقال فقط زمانی انجام می‌شود که:
+     * 1) فاکتور دقیقاً به یک پیش‌فاکتور مبنا متصل باشد.
+     * 2) برای فاکتور هنوز رکورد ExportDocumentInfo ثبت نشده باشد.
+     * 3) پیش‌فاکتور دارای Discount باشد.
+     */
+    private void syncInvoiceDiscountFromPreInvoice(
+            CompanyConfig company,
+            int vchNo,
+            int year
+    ) throws SQLException {
+
+        try (
+                Connection connection =
+                        DatabaseManager.getConnection(company);
+
+                PreparedStatement statement =
+                        connection.prepareStatement(
+                                SQL_INVOICE_PRE_INVOICE_HEADER
+                        )
+        ) {
+
+            statement.setInt(1, vchNo);
+            statement.setInt(2, year);
+
+            long invoiceVchHdrRef;
+            long preInvoiceVchHdrRef;
+            int preInvoiceCount;
+
+            try (
+                    ResultSet rs =
+                            statement.executeQuery()
+            ) {
+
+                if (!rs.next()) {
+                    return;
+                }
+
+                invoiceVchHdrRef =
+                        rs.getLong(
+                                "InvoiceVchHdrRef"
+                        );
+
+                preInvoiceCount =
+                        rs.getInt(
+                                "PreInvoiceCount"
+                        );
+
+                preInvoiceVchHdrRef =
+                        rs.getLong(
+                                "PreInvoiceVchHdrRef"
+                        );
+
+                if (rs.wasNull()) {
+                    return;
+                }
+            }
+
+            if (preInvoiceCount != 1) {
+                return;
+            }
+
+            if (documentInfoExists(
+                    connection,
+                    VCH_TYPE_INVOICE,
+                    invoiceVchHdrRef
+            )) {
+                return;
+            }
+
+            BigDecimal discount =
+                    loadDocumentDiscount(
+                            connection,
+                            VCH_TYPE_PRE_INVOICE,
+                            preInvoiceVchHdrRef
+                    );
+
+            if (discount == null) {
+                return;
+            }
+
+            saveDocumentDiscount(
+                    connection,
+                    VCH_TYPE_INVOICE,
+                    invoiceVchHdrRef,
+                    discount
+            );
+        }
+    }
+
     private DocumentData loadDocument(
             CompanyConfig company,
             int vchNo,
             int year,
-            String sql
+            String sql,
+            int vchType
     ) throws SQLException {
 
         List<DocumentItem> items =
@@ -585,6 +766,13 @@ public class DocumentRepository {
             return null;
         }
 
+        BigDecimal discount =
+                loadDocumentDiscount(
+                        company,
+                        vchType,
+                        vchHdrRef
+                );
+
         return new DocumentData(
                 vchHdrRef,
                 actualVchNo,
@@ -593,6 +781,7 @@ public class DocumentRepository {
                 customerCode,
                 customerTitle,
                 customerAddress,
+                discount,
                 items
         );
     }
@@ -986,6 +1175,45 @@ public class DocumentRepository {
                           END
                           """;
 
+        String documentDiscount =
+                preInvoice
+                        ? """
+                          (
+                              SELECT TOP 1
+                                  edi.Discount
+                              FROM dbo.ExportDocumentInfo edi
+                              WHERE edi.VchType = 1
+                                AND edi.VchHdrRef = i.VchHdrRef
+                          )
+                          """
+                        : """
+                          COALESCE(
+                              (
+                                  SELECT TOP 1
+                                      edi.Discount
+                                  FROM dbo.ExportDocumentInfo edi
+                                  WHERE edi.VchType = 2
+                                    AND edi.VchHdrRef = f.VchHdrRef
+                              ),
+                              (
+                                  SELECT
+                                      CASE
+                                          WHEN COUNT(DISTINCT pre2.VchHdrRef) = 1
+                                              THEN MAX(edi2.Discount)
+                                          ELSE NULL
+                                      END
+                                  FROM sle.SLEFactItm f2
+                                  LEFT JOIN sle.SLEPreFactItm pre2
+                                         ON pre2.VchItmId = f2.PreFactVchItmRef
+                                  LEFT JOIN dbo.ExportDocumentInfo edi2
+                                         ON edi2.VchType = 1
+                                        AND edi2.VchHdrRef = pre2.VchHdrRef
+                                  WHERE f2.VchHdrRef = f.VchHdrRef
+                                    AND f2.CurType = 1
+                              )
+                          )
+                          """;
+
         StringBuilder sql =
                 new StringBuilder();
 
@@ -1043,13 +1271,17 @@ public class DocumentRepository {
                     AS SecondPricePer1000,
 
                 %3$s
-                    AS SecondAmount
+                    AS SecondAmount,
 
-            FROM %4$s %1$s
+                %4$s
+                    AS DocumentDiscount
+
+            FROM %5$s %1$s
             """.formatted(
                         alias,
                         secondUnitPrice,
                         secondAmount,
+                        documentDiscount,
                         tableName
                 )
         );
@@ -1270,6 +1502,12 @@ public class DocumentRepository {
                                     "SystemAmount"
                             );
 
+                    Double documentDiscountValue =
+                            getNullableDouble(
+                                    rs,
+                                    "DocumentDiscount"
+                            );
+
                     allItems.add(
                             new ManagementReportItem(
                                     rs.getLong(
@@ -1322,7 +1560,8 @@ public class DocumentRepository {
                                     ),
                                     systemAmountValue,
                                     secondPricePer1000,
-                                    secondAmountValue
+                                    secondAmountValue,
+                                    documentDiscountValue
                             )
                     );
                 }
@@ -1452,9 +1691,15 @@ public class DocumentRepository {
                 continue;
             }
 
+            double discount =
+                    first.documentDiscount() == null
+                            ? 0.0
+                            : first.documentDiscount();
+
             double difference =
                     secondTotal
-                            - systemTotal;
+                            - systemTotal
+                            - discount;
 
             documents.add(
                     new ManagementReportDocument(
@@ -1470,6 +1715,7 @@ public class DocumentRepository {
                             status,
                             systemTotal,
                             secondTotal,
+                            discount,
                             difference
                     )
             );
@@ -1515,39 +1761,46 @@ public class DocumentRepository {
 
     public void savePreInvoicePrices(
             CompanyConfig company,
-            List<PriceUpdate> updates
+            long vchHdrRef,
+            List<PriceUpdate> updates,
+            BigDecimal discount
     ) throws SQLException {
 
         savePrices(
                 company,
+                vchHdrRef,
+                VCH_TYPE_PRE_INVOICE,
                 updates,
+                discount,
                 SQL_UPDATE_PRE_INVOICE
         );
     }
 
     public void saveInvoicePrices(
             CompanyConfig company,
-            List<PriceUpdate> updates
+            long vchHdrRef,
+            List<PriceUpdate> updates,
+            BigDecimal discount
     ) throws SQLException {
 
         savePrices(
                 company,
+                vchHdrRef,
+                VCH_TYPE_INVOICE,
                 updates,
+                discount,
                 SQL_UPDATE_INVOICE
         );
     }
 
     private void savePrices(
             CompanyConfig company,
+            long vchHdrRef,
+            int vchType,
             List<PriceUpdate> updates,
+            BigDecimal discount,
             String sql
     ) throws SQLException {
-
-        if (updates == null
-                || updates.isEmpty()) {
-
-            return;
-        }
 
         try (
                 Connection connection =
@@ -1559,50 +1812,68 @@ public class DocumentRepository {
 
             connection.setAutoCommit(false);
 
-            try (
-                    PreparedStatement statement =
-                            connection.prepareStatement(sql)
-            ) {
+            try {
 
-                for (
-                        PriceUpdate item
-                        : updates
-                ) {
+                if (updates != null
+                        && !updates.isEmpty()) {
 
-                    statement.setDouble(
-                            1,
-                            item.curUnitPrice2()
-                    );
+                    try (
+                            PreparedStatement statement =
+                                    connection.prepareStatement(sql)
+                    ) {
 
-                    statement.setDouble(
-                            2,
-                            item.curPrice2()
-                    );
+                        for (
+                                PriceUpdate item
+                                : updates
+                        ) {
 
-                    statement.setLong(
-                            3,
-                            item.vchItmId()
-                    );
+                            statement.setDouble(
+                                    1,
+                                    item.curUnitPrice2()
+                            );
 
-                    statement.addBatch();
-                }
+                            statement.setDouble(
+                                    2,
+                                    item.curPrice2()
+                            );
 
-                int[] results =
-                        statement.executeBatch();
+                            statement.setLong(
+                                    3,
+                                    item.vchItmId()
+                            );
 
-                for (
-                        int result
-                        : results
-                ) {
+                            statement.addBatch();
+                        }
 
-                    if (result
-                            == Statement.EXECUTE_FAILED) {
+                        int[] results =
+                                statement.executeBatch();
 
-                        throw new SQLException(
-                                "حداقل یکی از ردیف‌ها به‌روزرسانی نشد."
-                        );
+                        for (
+                                int result
+                                : results
+                        ) {
+
+                            if (result
+                                    == Statement.EXECUTE_FAILED) {
+
+                                throw new SQLException(
+                                        "حداقل یکی از ردیف‌ها به‌روزرسانی نشد."
+                                );
+                            }
+                        }
                     }
                 }
+
+                /*
+                 * قیمت دوم ردیف‌ها و تخفیف کل سند در یک Transaction
+                 * ذخیره می‌شوند تا اطلاعات سند نیمه‌کاره ثبت نشود.
+                 */
+                saveDocumentDiscount(
+                        connection,
+                        vchType,
+                        vchHdrRef,
+                        discount
+                );
 
                 connection.commit();
 
@@ -1616,7 +1887,7 @@ public class DocumentRepository {
                 }
 
                 throw new SQLException(
-                        "خطا در ثبت قیمت دوم.",
+                        "خطا در ثبت قیمت دوم و تخفیف.",
                         ex
                 );
 
@@ -1626,6 +1897,183 @@ public class DocumentRepository {
                         oldAutoCommit
                 );
             }
+        }
+    }
+
+    // =========================================================
+    // Discount Helpers
+    // =========================================================
+
+    private BigDecimal loadDocumentDiscount(
+            CompanyConfig company,
+            int vchType,
+            long vchHdrRef
+    ) throws SQLException {
+
+        try (
+                Connection connection =
+                        DatabaseManager.getConnection(company)
+        ) {
+
+            return loadDocumentDiscount(
+                    connection,
+                    vchType,
+                    vchHdrRef
+            );
+        }
+    }
+
+    private BigDecimal loadDocumentDiscount(
+            Connection connection,
+            int vchType,
+            long vchHdrRef
+    ) throws SQLException {
+
+        try (
+                PreparedStatement statement =
+                        connection.prepareStatement(
+                                SQL_LOAD_DOCUMENT_DISCOUNT
+                        )
+        ) {
+
+            statement.setInt(1, vchType);
+            statement.setLong(2, vchHdrRef);
+
+            try (
+                    ResultSet rs =
+                            statement.executeQuery()
+            ) {
+
+                if (!rs.next()) {
+                    return null;
+                }
+
+                return rs.getBigDecimal(
+                        "Discount"
+                );
+            }
+        }
+    }
+
+    private boolean documentInfoExists(
+            Connection connection,
+            int vchType,
+            long vchHdrRef
+    ) throws SQLException {
+
+        try (
+                PreparedStatement statement =
+                        connection.prepareStatement(
+                                SQL_DOCUMENT_INFO_EXISTS
+                        )
+        ) {
+
+            statement.setInt(1, vchType);
+            statement.setLong(2, vchHdrRef);
+
+            try (
+                    ResultSet rs =
+                            statement.executeQuery()
+            ) {
+
+                return rs.next()
+                        && rs.getInt(1) > 0;
+            }
+        }
+    }
+
+    private void saveDocumentDiscount(
+            Connection connection,
+            int vchType,
+            long vchHdrRef,
+            BigDecimal discount
+    ) throws SQLException {
+
+        /*
+         * فیلد خالی یعنی تخفیفی برای سند ثبت نشده است.
+         * در این حالت رکورد مستقل Discount نیز نگهداری نمی‌کنیم.
+         * مقدار صفر، برعکس، یک مقدار صریح و معتبر است.
+         */
+        if (discount == null) {
+
+            try (
+                    PreparedStatement statement =
+                            connection.prepareStatement(
+                                    SQL_DELETE_DOCUMENT_DISCOUNT
+                            )
+            ) {
+
+                statement.setInt(
+                        1,
+                        vchType
+                );
+
+                statement.setLong(
+                        2,
+                        vchHdrRef
+                );
+
+                statement.executeUpdate();
+            }
+
+            return;
+        }
+
+        int updated;
+
+        try (
+                PreparedStatement statement =
+                        connection.prepareStatement(
+                                SQL_UPDATE_DOCUMENT_DISCOUNT
+                        )
+        ) {
+
+            statement.setBigDecimal(
+                    1,
+                    discount
+            );
+
+            statement.setInt(
+                    2,
+                    vchType
+            );
+
+            statement.setLong(
+                    3,
+                    vchHdrRef
+            );
+
+            updated =
+                    statement.executeUpdate();
+        }
+
+        if (updated > 0) {
+            return;
+        }
+
+        try (
+                PreparedStatement statement =
+                        connection.prepareStatement(
+                                SQL_INSERT_DOCUMENT_DISCOUNT
+                        )
+        ) {
+
+            statement.setInt(
+                    1,
+                    vchType
+            );
+
+            statement.setLong(
+                    2,
+                    vchHdrRef
+            );
+
+            statement.setBigDecimal(
+                    3,
+                    discount
+            );
+
+            statement.executeUpdate();
         }
     }
 
@@ -1888,6 +2336,7 @@ public class DocumentRepository {
             PriceStatus priceStatus,
             double systemTotal,
             double secondTotal,
+            double discount,
             double difference
     ) {
     }
@@ -1911,7 +2360,8 @@ public class DocumentRepository {
             double systemPricePer1000,
             double systemAmount,
             Double secondPricePer1000,
-            Double secondAmount
+            Double secondAmount,
+            Double documentDiscount
     ) {
 
         public Double difference() {
@@ -2046,10 +2496,31 @@ public class DocumentRepository {
             return total;
         }
 
+        public double discountTotal() {
+
+            if (documents == null) {
+                return 0.0;
+            }
+
+            double total = 0.0;
+
+            for (
+                    ManagementReportDocument document
+                    : documents
+            ) {
+
+                total +=
+                        document.discount();
+            }
+
+            return total;
+        }
+
         public double differenceTotal() {
 
             return secondTotal()
-                    - systemTotal();
+                    - systemTotal()
+                    - discountTotal();
         }
     }
 
@@ -2065,6 +2536,7 @@ public class DocumentRepository {
             String customerCode,
             String customerTitle,
             String customerAddress,
+            BigDecimal discount,
             List<DocumentItem> items
     ) {
     }
